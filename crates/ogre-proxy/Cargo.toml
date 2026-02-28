@@ -1,0 +1,26 @@
+[package]
+name = "ogre-proxy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The deterministic proxy for the OGRE protocol"
+
+[dependencies]
+ogre-core = { workspace = true }
+ogre-crypto = { workspace = true }
+ogre-audit = { workspace = true }
+ogre-rules = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+ogre-connector-sqlite = { workspace = true }
+ed25519-dalek = { workspace = true }
+rand = { workspace = true }
+chrono = { workspace = true }
+tempfile = "3"

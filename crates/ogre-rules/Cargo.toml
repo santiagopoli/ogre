@@ -1,0 +1,19 @@
+[package]
+name = "ogre-rules"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "User rules engine for the OGRE protocol"
+
+[dependencies]
+ogre-core = { workspace = true }
+ogre-crypto = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+regex = "1"
+ed25519-dalek = { workspace = true }
+
+[dev-dependencies]
+rand = { workspace = true }

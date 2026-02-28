@@ -1,0 +1,31 @@
+[package]
+name = "ogre-api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "REST API server for the OGRE protocol"
+
+[dependencies]
+ogre-core = { workspace = true }
+ogre-crypto = { workspace = true }
+ogre-proxy = { workspace = true }
+ogre-audit = { workspace = true }
+ogre-rules = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+ed25519-dalek = { workspace = true }
+rand = { workspace = true }
+ogre-connector-sqlite = { workspace = true }
+
+[[bin]]
+name = "ogre-api"
+path = "src/main.rs"

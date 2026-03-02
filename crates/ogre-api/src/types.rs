@@ -9,6 +9,12 @@ pub struct SubmitActionRequest {
     pub connector_id: String,
     pub parameters: serde_json::Value,
     pub signatures: Vec<SignaturePayload>,
+    #[serde(default = "default_agent_id")]
+    pub agent_id: String,
+}
+
+fn default_agent_id() -> String {
+    "default-agent".to_string()
 }
 
 #[derive(Debug, Deserialize)]
@@ -103,6 +109,30 @@ pub struct DashboardSummary {
     pub chain_valid: bool,
     pub connectors_count: usize,
     pub rules_count: usize,
+}
+
+// -- Agent types --
+
+#[derive(Debug, Deserialize)]
+pub struct RegisterAgentRequest {
+    pub agent_id: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AgentResponse {
+    pub agent_id: String,
+}
+
+// -- Enriched pending response --
+
+#[derive(Debug, Serialize)]
+pub struct PendingActionResponse {
+    pub action_id: String,
+    pub agent_id: String,
+    pub reason: String,
+    pub classification: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Debug, Serialize)]

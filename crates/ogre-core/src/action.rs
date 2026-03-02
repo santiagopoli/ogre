@@ -1,4 +1,4 @@
-use crate::ids::{ActionId, CapabilityId, ConnectorId};
+use crate::ids::{ActionId, AgentId, CapabilityId, ConnectorId};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -50,6 +50,16 @@ pub struct ActionPayload {
     pub capability: CapabilityId,
     pub connector_id: ConnectorId,
     pub parameters: serde_json::Value,
+    #[serde(default)]
+    pub agent_id: AgentId,
+}
+
+/// Context extracted from an action after classification.
+/// Contains domain-specific information like which tables are referenced.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ActionContext {
+    pub tables: Vec<String>,
+    pub level: Option<ActionLevel>,
 }
 
 impl ActionPayload {

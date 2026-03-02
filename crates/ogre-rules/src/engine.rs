@@ -1,8 +1,18 @@
 use crate::rule::{Rule, RuleEffect};
 use crate::RulesError;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use ogre_core::ActionContext;
 use ogre_core::ActionLevel;
 use ogre_core::ActionPayload;
+
+/// The decision made by the rules engine after evaluating all rules.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RuleDecision {
+    /// The action is explicitly allowed.
+    Allow,
+    /// The action requires human approval before execution.
+    RequireApproval { rule_id: String },
+}
 
 /// The rules engine. Evaluates rules against action payloads.
 /// Default-deny: if no rule explicitly allows an action, it is rejected.
@@ -44,7 +54,7 @@ impl RulesEngine {
         for rule in &self.rules {
             if rule.condition.evaluate_with_level(payload, level) {
                 match rule.effect {
-                    RuleEffect::Allow => return Ok(()),
+                    RuleEffect::Allow | RuleEffect::RequireApproval => return Ok(()),
                     RuleEffect::Deny => {
                         return Err(RulesError::Denied {
                             rule_id: rule.id.to_string(),
@@ -56,6 +66,36 @@ impl RulesEngine {
         }
 
         // Default deny: no rule matched with Allow
+        Err(RulesError::DefaultDeny)
+    }
+
+    /// Evaluate rules with full context (action level + extracted tables).
+    /// Returns a RuleDecision indicating whether the action is allowed or requires approval.
+    pub fn evaluate_with_context(
+        &self,
+        payload: &ActionPayload,
+        context: &ActionContext,
+    ) -> Result<RuleDecision, RulesError> {
+        for rule in &self.rules {
+            if rule.condition.evaluate_with_context(payload, context) {
+                match rule.effect {
+                    RuleEffect::Allow => return Ok(RuleDecision::Allow),
+                    RuleEffect::Deny => {
+                        return Err(RulesError::Denied {
+                            rule_id: rule.id.to_string(),
+                            reason: rule.description.clone(),
+                        });
+                    }
+                    RuleEffect::RequireApproval => {
+                        return Ok(RuleDecision::RequireApproval {
+                            rule_id: rule.id.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+
+        // Default deny: no rule matched
         Err(RulesError::DefaultDeny)
     }
 

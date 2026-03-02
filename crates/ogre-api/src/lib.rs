@@ -29,6 +29,9 @@ pub fn create_router(state: AppState) -> Router {
         // Keys
         .route("/api/v1/keys", get(handlers::keys::list_keys))
         .route("/api/v1/keys/generate", post(handlers::keys::generate_keys))
+        // Agents
+        .route("/api/v1/agents", get(handlers::agents::list_agents))
+        .route("/api/v1/agents", post(handlers::agents::register_agent))
         // Dashboard
         .route("/api/v1/dashboard/summary", get(handlers::dashboard::summary))
         .layer(TraceLayer::new_for_http())

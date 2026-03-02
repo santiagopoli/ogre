@@ -2,7 +2,7 @@ mod nonce;
 mod pending;
 mod proxy;
 
-pub use pending::{PendingAction, PendingActionStore};
+pub use pending::{PendingAction, PendingActionStore, PendingReason, PendingSummary};
 pub use proxy::{ProcessResult, Proxy, ProxyConfig};
 
 use thiserror::Error;
@@ -54,4 +54,7 @@ pub enum ProxyError {
 
     #[error("action {0} has expired")]
     ActionExpired(String),
+
+    #[error("unknown agent: {0}")]
+    UnknownAgent(String),
 }

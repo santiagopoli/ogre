@@ -3,7 +3,7 @@ mod engine;
 mod rule;
 
 pub use condition::Condition;
-pub use engine::RulesEngine;
+pub use engine::{RuleDecision, RulesEngine};
 pub use rule::{Rule, RuleEffect};
 
 use thiserror::Error;

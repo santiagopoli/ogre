@@ -4,7 +4,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 use chrono::Utc;
-use ogre_core::ids::{ActionId, CapabilityId, ConnectorId};
+use ogre_core::ids::{ActionId, AgentId, CapabilityId, ConnectorId};
 use ogre_core::ActionPayload;
 use ogre_crypto::signature::{Signature, SignerRole};
 use ogre_proxy::ProcessResult;
@@ -20,6 +20,7 @@ pub async fn submit_action(
         capability: CapabilityId::new(&req.capability),
         connector_id: ConnectorId::new(&req.connector_id),
         parameters: req.parameters,
+        agent_id: AgentId::new(&req.agent_id),
     };
 
     let signatures: Result<Vec<Signature>, _> = req
@@ -100,7 +101,7 @@ pub async fn get_action(
 
 pub async fn list_pending(
     State(state): State<AppState>,
-) -> Result<Json<Vec<String>>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<Vec<PendingActionResponse>>, (StatusCode, Json<ErrorResponse>)> {
     let proxy = state.proxy.read().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -110,14 +111,29 @@ pub async fn list_pending(
         )
     })?;
 
-    let ids: Vec<String> = proxy
+    let pending: Vec<PendingActionResponse> = proxy
         .pending_store()
-        .list_pending()
+        .list_pending_details()
         .into_iter()
-        .map(|id| id.as_str().to_string())
+        .map(|p| {
+            let reason = match &p.reason {
+                ogre_proxy::PendingReason::DestructiveAction => "destructive_action".to_string(),
+                ogre_proxy::PendingReason::RuleRequiresApproval { rule_id } => {
+                    format!("rule_requires_approval:{rule_id}")
+                }
+            };
+            PendingActionResponse {
+                action_id: p.action_id,
+                agent_id: p.agent_id,
+                reason,
+                classification: format!("{}", p.classification),
+                created_at: p.created_at,
+                expires_at: p.expires_at,
+            }
+        })
         .collect();
 
-    Ok(Json(ids))
+    Ok(Json(pending))
 }
 
 pub async fn approve_action(

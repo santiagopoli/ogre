@@ -21,6 +21,12 @@ macro_rules! define_id {
             }
         }
 
+        impl Default for $name {
+            fn default() -> Self {
+                Self(String::new())
+            }
+        }
+
         impl fmt::Display for $name {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 write!(f, "{}", self.0)
@@ -45,3 +51,4 @@ define_id!(ActionId);
 define_id!(ConnectorId);
 define_id!(CapabilityId);
 define_id!(RuleId);
+define_id!(AgentId);

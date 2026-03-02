@@ -1,8 +1,8 @@
 use chrono::Utc;
 use ed25519_dalek::Signer;
-use ogre_core::ids::{ActionId, CapabilityId, ConnectorId, RuleId};
-use ogre_core::ActionPayload;
-use ogre_rules::{Condition, Rule, RuleEffect, RulesEngine, RulesError};
+use ogre_core::ids::{ActionId, AgentId, CapabilityId, ConnectorId, RuleId};
+use ogre_core::{ActionContext, ActionLevel, ActionPayload};
+use ogre_rules::{Condition, Rule, RuleDecision, RuleEffect, RulesEngine, RulesError};
 
 fn test_payload(connector: &str, capability: &str, params: serde_json::Value) -> ActionPayload {
     ActionPayload {
@@ -12,6 +12,7 @@ fn test_payload(connector: &str, capability: &str, params: serde_json::Value) ->
         capability: CapabilityId::new(capability),
         connector_id: ConnectorId::new(connector),
         parameters: params,
+        agent_id: AgentId::new("test-agent"),
     }
 }
 
@@ -237,4 +238,301 @@ fn wrong_key_rejected() {
         engine.add_rule(signed),
         Err(RulesError::InvalidSignature { .. })
     ));
+}
+
+// =============================================================================
+// RBAC condition tests — AgentIs, TableIs, RequireApproval, combined
+// =============================================================================
+
+fn test_payload_with_agent(
+    connector: &str,
+    capability: &str,
+    params: serde_json::Value,
+    agent: &str,
+) -> ActionPayload {
+    ActionPayload {
+        id: ActionId::generate(),
+        nonce: rand::random(),
+        timestamp: Utc::now(),
+        capability: CapabilityId::new(capability),
+        connector_id: ConnectorId::new(connector),
+        parameters: params,
+        agent_id: AgentId::new(agent),
+    }
+}
+
+#[test]
+fn agent_is_matches_correct_agent() {
+    let mut engine = RulesEngine::new(None);
+    let rule = unsigned_rule(
+        "allow-alice",
+        Condition::AgentIs {
+            agent_id: "alice".into(),
+        },
+        RuleEffect::Allow,
+        0,
+    );
+    engine.add_rule(rule).unwrap();
+
+    let alice = test_payload_with_agent("sqlite", "query_read", serde_json::json!({}), "alice");
+    assert!(engine.evaluate(&alice).is_ok());
+}
+
+#[test]
+fn agent_is_rejects_wrong_agent() {
+    let mut engine = RulesEngine::new(None);
+    let rule = unsigned_rule(
+        "allow-alice",
+        Condition::AgentIs {
+            agent_id: "alice".into(),
+        },
+        RuleEffect::Allow,
+        0,
+    );
+    engine.add_rule(rule).unwrap();
+
+    let bob = test_payload_with_agent("sqlite", "query_read", serde_json::json!({}), "bob");
+    assert!(matches!(engine.evaluate(&bob), Err(RulesError::DefaultDeny)));
+}
+
+#[test]
+fn table_is_matches_context_tables() {
+    let mut engine = RulesEngine::new(None);
+    let rule = unsigned_rule(
+        "allow-users-table",
+        Condition::TableIs {
+            table_name: "users".into(),
+        },
+        RuleEffect::Allow,
+        0,
+    );
+    engine.add_rule(rule).unwrap();
+
+    let payload = test_payload("sqlite", "query_read", serde_json::json!({}));
+    let context = ActionContext {
+        tables: vec!["users".to_string(), "orders".to_string()],
+        level: Some(ActionLevel::Read),
+    };
+
+    let decision = engine.evaluate_with_context(&payload, &context).unwrap();
+    assert_eq!(decision, RuleDecision::Allow);
+}
+
+#[test]
+fn table_is_case_insensitive() {
+    let mut engine = RulesEngine::new(None);
+    let rule = unsigned_rule(
+        "allow-users-table",
+        Condition::TableIs {
+            table_name: "USERS".into(),
+        },
+        RuleEffect::Allow,
+        0,
+    );
+    engine.add_rule(rule).unwrap();
+
+    let payload = test_payload("sqlite", "query_read", serde_json::json!({}));
+    let context = ActionContext {
+        tables: vec!["users".to_string()],
+        level: Some(ActionLevel::Read),
+    };
+
+    let decision = engine.evaluate_with_context(&payload, &context).unwrap();
+    assert_eq!(decision, RuleDecision::Allow);
+}
+
+#[test]
+fn table_is_rejects_when_table_not_present() {
+    let mut engine = RulesEngine::new(None);
+    let rule = unsigned_rule(
+        "allow-secrets",
+        Condition::TableIs {
+            table_name: "secrets".into(),
+        },
+        RuleEffect::Allow,
+        0,
+    );
+    engine.add_rule(rule).unwrap();
+
+    let payload = test_payload("sqlite", "query_read", serde_json::json!({}));
+    let context = ActionContext {
+        tables: vec!["users".to_string(), "orders".to_string()],
+        level: Some(ActionLevel::Read),
+    };
+
+    let result = engine.evaluate_with_context(&payload, &context);
+    assert!(matches!(result, Err(RulesError::DefaultDeny)));
+}
+
+#[test]
+fn require_approval_returns_rule_decision() {
+    let mut engine = RulesEngine::new(None);
+    let rule = unsigned_rule(
+        "approve-destructive",
+        Condition::Always,
+        RuleEffect::RequireApproval,
+        0,
+    );
+    engine.add_rule(rule).unwrap();
+
+    let payload = test_payload("sqlite", "query_destructive", serde_json::json!({}));
+    let context = ActionContext {
+        tables: vec!["users".to_string()],
+        level: Some(ActionLevel::Destructive),
+    };
+
+    let decision = engine.evaluate_with_context(&payload, &context).unwrap();
+    assert_eq!(
+        decision,
+        RuleDecision::RequireApproval {
+            rule_id: "approve-destructive".to_string()
+        }
+    );
+}
+
+#[test]
+fn combined_agent_table_level_condition() {
+    let mut engine = RulesEngine::new(None);
+
+    // RequireApproval when: agent=data-loader AND table=users AND level=destructive
+    let combined = unsigned_rule(
+        "approve-loader-destructive-users",
+        Condition::And {
+            conditions: vec![
+                Condition::AgentIs {
+                    agent_id: "data-loader".into(),
+                },
+                Condition::TableIs {
+                    table_name: "users".into(),
+                },
+                Condition::ActionLevelIs {
+                    level: ActionLevel::Destructive,
+                },
+            ],
+        },
+        RuleEffect::RequireApproval,
+        10,
+    );
+    // Low-priority allow-all fallback
+    let allow = unsigned_rule("allow-all", Condition::Always, RuleEffect::Allow, 0);
+    engine.add_rule(combined).unwrap();
+    engine.add_rule(allow).unwrap();
+
+    // data-loader + users + destructive → RequireApproval
+    let payload = test_payload_with_agent(
+        "sqlite",
+        "query_destructive",
+        serde_json::json!({}),
+        "data-loader",
+    );
+    let context = ActionContext {
+        tables: vec!["users".to_string()],
+        level: Some(ActionLevel::Destructive),
+    };
+    let decision = engine.evaluate_with_context(&payload, &context).unwrap();
+    assert_eq!(
+        decision,
+        RuleDecision::RequireApproval {
+            rule_id: "approve-loader-destructive-users".to_string()
+        }
+    );
+
+    // data-loader + orders + destructive → Allow (table doesn't match, falls to allow-all)
+    let context_orders = ActionContext {
+        tables: vec!["orders".to_string()],
+        level: Some(ActionLevel::Destructive),
+    };
+    let decision = engine
+        .evaluate_with_context(&payload, &context_orders)
+        .unwrap();
+    assert_eq!(decision, RuleDecision::Allow);
+
+    // different-agent + users + destructive → Allow (agent doesn't match)
+    let other_agent = test_payload_with_agent(
+        "sqlite",
+        "query_destructive",
+        serde_json::json!({}),
+        "other-agent",
+    );
+    let decision = engine
+        .evaluate_with_context(&other_agent, &context)
+        .unwrap();
+    assert_eq!(decision, RuleDecision::Allow);
+
+    // data-loader + users + read → Allow (level doesn't match)
+    let context_read = ActionContext {
+        tables: vec!["users".to_string()],
+        level: Some(ActionLevel::Read),
+    };
+    let decision = engine
+        .evaluate_with_context(&payload, &context_read)
+        .unwrap();
+    assert_eq!(decision, RuleDecision::Allow);
+}
+
+#[test]
+fn deny_overrides_require_approval() {
+    let mut engine = RulesEngine::new(None);
+
+    // High-priority deny for secrets table
+    let deny = unsigned_rule(
+        "deny-secrets",
+        Condition::TableIs {
+            table_name: "secrets".into(),
+        },
+        RuleEffect::Deny,
+        100,
+    );
+    // Medium-priority require-approval for destructive
+    let approve = unsigned_rule(
+        "approve-destructive",
+        Condition::ActionLevelIs {
+            level: ActionLevel::Destructive,
+        },
+        RuleEffect::RequireApproval,
+        50,
+    );
+    // Low-priority allow-all
+    let allow = unsigned_rule("allow-all", Condition::Always, RuleEffect::Allow, 0);
+
+    engine.add_rule(deny).unwrap();
+    engine.add_rule(approve).unwrap();
+    engine.add_rule(allow).unwrap();
+
+    // Destructive on secrets → Denied (deny has higher priority)
+    let payload = test_payload("sqlite", "query_destructive", serde_json::json!({}));
+    let context = ActionContext {
+        tables: vec!["secrets".to_string()],
+        level: Some(ActionLevel::Destructive),
+    };
+    let result = engine.evaluate_with_context(&payload, &context);
+    assert!(
+        matches!(result, Err(RulesError::Denied { ref rule_id, .. }) if rule_id == "deny-secrets"),
+        "expected deny-secrets, got: {result:?}"
+    );
+
+    // Destructive on users → RequireApproval (deny doesn't match, approve does)
+    let context_users = ActionContext {
+        tables: vec!["users".to_string()],
+        level: Some(ActionLevel::Destructive),
+    };
+    let decision = engine
+        .evaluate_with_context(&payload, &context_users)
+        .unwrap();
+    assert_eq!(
+        decision,
+        RuleDecision::RequireApproval {
+            rule_id: "approve-destructive".to_string()
+        }
+    );
+
+    // Read on users → Allow (neither deny nor approve match)
+    let context_read = ActionContext {
+        tables: vec!["users".to_string()],
+        level: Some(ActionLevel::Read),
+    };
+    let decision = engine
+        .evaluate_with_context(&payload, &context_read)
+        .unwrap();
+    assert_eq!(decision, RuleDecision::Allow);
 }

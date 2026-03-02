@@ -11,6 +11,8 @@ pub enum RuleEffect {
     Allow,
     /// The action is explicitly denied.
     Deny,
+    /// The action requires explicit human approval before execution.
+    RequireApproval,
 }
 
 /// A user-defined rule.

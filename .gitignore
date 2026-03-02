@@ -6,6 +6,11 @@ target/
 web/node_modules/
 web/dist/
 
+# OGRE keys & data
+.ogre/
+ogre-audit.jsonl
+ogre.db
+
 # Environment
 .env
 .env.*

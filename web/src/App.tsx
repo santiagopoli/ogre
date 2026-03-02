@@ -4,12 +4,16 @@ import { Rules } from './views/Rules';
 import { AuditLog } from './views/AuditLog';
 import { Connectors } from './views/Connectors';
 import { Keys } from './views/Keys';
+import { Agents } from './views/Agents';
+import { PendingApprovals } from './views/PendingApprovals';
 
-type View = 'dashboard' | 'rules' | 'audit' | 'connectors' | 'keys';
+type View = 'dashboard' | 'rules' | 'audit' | 'connectors' | 'keys' | 'agents' | 'pending';
 
 const NAV_ITEMS: { id: View; label: string }[] = [
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'rules', label: 'Rules' },
+  { id: 'agents', label: 'Agents' },
+  { id: 'pending', label: 'Pending' },
   { id: 'audit', label: 'Audit Log' },
   { id: 'connectors', label: 'Connectors' },
   { id: 'keys', label: 'Keys' },
@@ -51,6 +55,8 @@ export default function App() {
         <main className="flex-1 p-6">
           {view === 'dashboard' && <Dashboard />}
           {view === 'rules' && <Rules />}
+          {view === 'agents' && <Agents />}
+          {view === 'pending' && <PendingApprovals />}
           {view === 'audit' && <AuditLog />}
           {view === 'connectors' && <Connectors />}
           {view === 'keys' && <Keys />}

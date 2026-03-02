@@ -55,6 +55,19 @@ export interface KeysResponse {
   user: string | null;
 }
 
+export interface AgentResponse {
+  agent_id: string;
+}
+
+export interface PendingActionResponse {
+  action_id: string;
+  agent_id: string;
+  reason: string;
+  classification: string;
+  created_at: string;
+  expires_at: string;
+}
+
 export interface ChainVerification {
   valid: boolean;
   entries_checked: number;
@@ -78,5 +91,11 @@ export const api = {
   connectors: () => request<ConnectorResponse[]>('/connectors'),
   capabilities: (id: string) => request<CapabilityResponse[]>(`/connectors/${id}/capabilities`),
   keys: () => request<KeysResponse>('/keys'),
-  pendingActions: () => request<string[]>('/actions/pending'),
+  pendingActions: () => request<PendingActionResponse[]>('/actions/pending'),
+  agents: () => request<AgentResponse[]>('/agents'),
+  registerAgent: (agentId: string) =>
+    request<AgentResponse>('/agents', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId }),
+    }),
 };

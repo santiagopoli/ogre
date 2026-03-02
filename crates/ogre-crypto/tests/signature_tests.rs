@@ -1,5 +1,5 @@
 use chrono::Utc;
-use ogre_core::{ActionId, ActionPayload, CapabilityId, ConnectorId};
+use ogre_core::{ActionId, ActionPayload, AgentId, CapabilityId, ConnectorId};
 use ogre_crypto::keys::{KeyBundle, PublicKeySet};
 use ogre_crypto::signature::SignerRole;
 use ogre_crypto::signed_request::SignedRequest;
@@ -13,6 +13,7 @@ fn test_payload() -> ActionPayload {
         capability: CapabilityId::new("query_read"),
         connector_id: ConnectorId::new("sqlite"),
         parameters: serde_json::json!({"query": "SELECT 1"}),
+        agent_id: AgentId::new("test-agent"),
     }
 }
 

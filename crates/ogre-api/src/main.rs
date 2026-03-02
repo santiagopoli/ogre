@@ -15,11 +15,12 @@ async fn main() {
 
     tracing::info!("OGRE API starting up");
 
-    // Bootstrap: generate keypairs
-    let bundle = KeyBundle::generate();
+    // Bootstrap: load or generate keypairs
+    let keys_dir = std::path::PathBuf::from(".ogre/keys");
+    let bundle = KeyBundle::load_or_generate(&keys_dir).expect("failed to load/generate keys");
     let keys = PublicKeySet::from_bundle(&bundle);
 
-    tracing::info!("Generated keypairs");
+    tracing::info!("Keys loaded from {}", keys_dir.display());
     tracing::info!("  Ogre public key:     {}", hex(&bundle.ogre.verifying_key().to_bytes()));
     tracing::info!("  Reviewer public key: {}", hex(&bundle.reviewer.verifying_key().to_bytes()));
     tracing::info!("  User public key:     {}", hex(&bundle.user.verifying_key().to_bytes()));
@@ -59,7 +60,7 @@ async fn main() {
 
     let app = create_router(state);
 
-    let addr = "0.0.0.0:3000";
+    let addr = std::env::var("OGRE_BIND").unwrap_or_else(|_| "0.0.0.0:3000".to_string());
     tracing::info!("Listening on {addr}");
     let listener = tokio::net::TcpListener::bind(addr).await.expect("failed to bind");
     axum::serve(listener, app).await.expect("server error");

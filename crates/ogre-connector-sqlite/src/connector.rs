@@ -1,9 +1,10 @@
-use crate::classifier::classify_sql;
+use crate::classifier::{classify_sql, extract_tables};
 use crate::sanitizer::sanitize_sql;
 use ogre_core::capability::CapabilityDeclaration;
 use ogre_core::ids::{CapabilityId, ConnectorId};
 use ogre_core::{
-    ActionLevel, ActionPayload, ActionResult, Connector, ConnectorError, Outcome, SafeAction,
+    ActionContext, ActionLevel, ActionPayload, ActionResult, Connector, ConnectorError, Outcome,
+    SafeAction,
 };
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
@@ -128,6 +129,22 @@ impl Connector for SqliteConnector {
                 duration,
             }),
         }
+    }
+
+    fn extract_context(&self, action: &ActionPayload) -> ActionContext {
+        let sql = match Self::extract_sql(action) {
+            Ok(sql) => sql,
+            Err(_) => return ActionContext::default(),
+        };
+
+        let tables: Vec<String> = extract_tables(sql)
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+
+        let level = classify_sql(sql).ok();
+
+        ActionContext { tables, level }
     }
 
     fn capabilities(&self) -> Vec<CapabilityDeclaration> {

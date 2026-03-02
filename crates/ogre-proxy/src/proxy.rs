@@ -1,5 +1,5 @@
 use crate::nonce::NonceTracker;
-use crate::pending::PendingActionStore;
+use crate::pending::{PendingActionStore, PendingReason};
 use crate::ProxyError;
 use chrono::{Duration, Utc};
 use ogre_audit::*;
@@ -9,8 +9,8 @@ use ogre_crypto::keys::PublicKeySet;
 use ogre_crypto::signature::Signature;
 
 use ogre_crypto::verification::SignatureVerifier;
-use ogre_rules::RulesEngine;
-use std::collections::HashMap;
+use ogre_rules::{RuleDecision, RulesEngine};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -40,6 +40,7 @@ pub struct Proxy {
     nonces: NonceTracker,
     pending: PendingActionStore,
     config: ProxyConfig,
+    agents: std::sync::RwLock<HashSet<String>>,
 }
 
 impl Proxy {
@@ -50,6 +51,8 @@ impl Proxy {
         config: ProxyConfig,
     ) -> Self {
         let pending_ttl = config.pending_ttl_minutes;
+        let mut initial_agents = HashSet::new();
+        initial_agents.insert("default-agent".to_string());
         Self {
             verifier: SignatureVerifier::new(keys),
             rules,
@@ -58,12 +61,23 @@ impl Proxy {
             nonces: NonceTracker::new(),
             pending: PendingActionStore::new(pending_ttl),
             config,
+            agents: std::sync::RwLock::new(initial_agents),
         }
     }
 
     pub fn register_connector(&mut self, connector: Arc<dyn Connector>) {
         let id = connector.id().as_str().to_string();
         self.connectors.insert(id, connector);
+    }
+
+    pub fn register_agent(&self, agent_id: &str) {
+        let mut agents = self.agents.write().expect("agents lock poisoned");
+        agents.insert(agent_id.to_string());
+    }
+
+    pub fn agents(&self) -> Vec<String> {
+        let agents = self.agents.read().expect("agents lock poisoned");
+        agents.iter().cloned().collect()
     }
 
     pub fn rules_engine(&self) -> &RulesEngine {
@@ -95,7 +109,17 @@ impl Proxy {
         signatures: &[Signature],
     ) -> Result<ProcessResult, ProxyError> {
         let action_id = payload.id.clone();
+        let agent_id_str = payload.agent_id.as_str().to_string();
         let mut step = ProxyStep::Received;
+
+        // 0. Validate agent is registered
+        {
+            let agents = self.agents.read().expect("agents lock poisoned");
+            if !agents.contains(&agent_id_str) {
+                self.log_denied(&payload, step, "unknown agent");
+                return Err(ProxyError::UnknownAgent(agent_id_str));
+            }
+        }
 
         // 1. Check nonce (replay protection)
         if !self.nonces.check_and_record(&payload.nonce) {
@@ -141,6 +165,39 @@ impl Proxy {
             level = %level,
             "action classified"
         );
+
+        // 5b. Build ActionContext and evaluate context-aware rules
+        let context = connector.extract_context(&payload);
+        let context_with_level = ogre_core::ActionContext {
+            tables: context.tables,
+            level: Some(level),
+        };
+        let rule_decision = self.rules.evaluate_with_context(&payload, &context_with_level).map_err(|e| {
+            self.log_denied(&payload, step, &e.to_string());
+            ProxyError::Rules(e)
+        })?;
+
+        // If a rule requires approval, route to pending regardless of level
+        if let RuleDecision::RequireApproval { ref rule_id } = rule_decision {
+            // Verify agent signatures
+            let agent_request = self
+                .verifier
+                .verify_agent_approved(payload, signatures)
+                .map_err(|e| {
+                    self.log_denied_by_id(&action_id, step, &e.to_string());
+                    ProxyError::Verification(e)
+                })?;
+
+            let pending_id = self.pending.insert(
+                agent_request,
+                level,
+                PendingReason::RuleRequiresApproval { rule_id: rule_id.clone() },
+                agent_id_str,
+            );
+
+            self.log_pending(&pending_id);
+            return Ok(ProcessResult::PendingApproval(pending_id));
+        }
 
         // 6. Verify capability
         step = ProxyStep::CapabilityVerified;
@@ -230,8 +287,12 @@ impl Proxy {
                                 ProxyError::Verification(e)
                             })?;
 
-                        let pending_id =
-                            self.pending.insert(agent_request, level);
+                        let pending_id = self.pending.insert(
+                            agent_request,
+                            level,
+                            PendingReason::DestructiveAction,
+                            agent_id_str,
+                        );
 
                         self.log_pending(&pending_id);
                         Ok(ProcessResult::PendingApproval(pending_id))

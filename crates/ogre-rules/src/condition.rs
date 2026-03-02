@@ -1,3 +1,4 @@
+use ogre_core::ActionContext;
 use ogre_core::ActionLevel;
 use ogre_core::ActionPayload;
 use serde::{Deserialize, Serialize};
@@ -28,6 +29,12 @@ pub enum Condition {
     /// For pre-classification rules, this is ignored.
     ActionLevelIs { level: ActionLevel },
 
+    /// Match the agent ID.
+    AgentIs { agent_id: String },
+
+    /// Match a table referenced in the action (evaluated after context extraction).
+    TableIs { table_name: String },
+
     /// Always true. Useful for unconditional allow/deny rules.
     Always,
 }
@@ -55,6 +62,12 @@ impl Condition {
                 // The proxy will re-evaluate level-based rules after classification.
                 true
             }
+            Condition::AgentIs { agent_id } => payload.agent_id.as_str() == agent_id,
+            Condition::TableIs { .. } => {
+                // Table matching requires context extraction (post-classification).
+                // Without context, matches all (same pattern as ActionLevelIs).
+                true
+            }
             Condition::Always => true,
         }
     }
@@ -75,6 +88,32 @@ impl Condition {
             Condition::Not { condition } => !condition.evaluate_with_level(payload, known_level),
             Condition::ActionLevelIs { level } => {
                 known_level.as_ref().map_or(true, |kl| kl == level)
+            }
+            other => other.evaluate(payload),
+        }
+    }
+
+    /// Evaluate with full context (action level + extracted tables).
+    /// Used by the proxy after classification and context extraction.
+    pub fn evaluate_with_context(
+        &self,
+        payload: &ActionPayload,
+        context: &ActionContext,
+    ) -> bool {
+        match self {
+            Condition::And { conditions } => conditions
+                .iter()
+                .all(|c| c.evaluate_with_context(payload, context)),
+            Condition::Or { conditions } => conditions
+                .iter()
+                .any(|c| c.evaluate_with_context(payload, context)),
+            Condition::Not { condition } => !condition.evaluate_with_context(payload, context),
+            Condition::ActionLevelIs { level } => {
+                context.level.as_ref().map_or(true, |kl| kl == level)
+            }
+            Condition::TableIs { table_name } => {
+                let target = table_name.to_lowercase();
+                context.tables.iter().any(|t| t.to_lowercase() == target)
             }
             other => other.evaluate(payload),
         }

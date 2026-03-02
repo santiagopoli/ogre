@@ -1,4 +1,4 @@
-use crate::action::{ActionLevel, ActionPayload, ActionResult, SafeAction};
+use crate::action::{ActionContext, ActionLevel, ActionPayload, ActionResult, SafeAction};
 use crate::capability::CapabilityDeclaration;
 use crate::error::ConnectorError;
 use crate::ids::ConnectorId;
@@ -41,4 +41,10 @@ pub trait Connector: Send + Sync {
 
     /// List all capabilities this connector provides.
     fn capabilities(&self) -> Vec<CapabilityDeclaration>;
+
+    /// Extract domain-specific context from an action (e.g., referenced tables).
+    /// Default implementation returns an empty context.
+    fn extract_context(&self, _action: &ActionPayload) -> ActionContext {
+        ActionContext::default()
+    }
 }

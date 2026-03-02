@@ -58,6 +58,69 @@ impl KeyBundle {
             user: UserKeyPair::generate(),
         }
     }
+
+    /// Load keys from a directory, or generate and save if they don't exist.
+    /// Expects/creates files: `ogre.key`, `reviewer.key`, `user.key` (hex-encoded 32-byte private keys).
+    pub fn load_or_generate(dir: &std::path::Path) -> Result<Self, std::io::Error> {
+        std::fs::create_dir_all(dir)?;
+
+        let ogre = load_or_generate_key::<OgreKeyPair>(&dir.join("ogre.key"))?;
+        let reviewer = load_or_generate_key::<ReviewerKeyPair>(&dir.join("reviewer.key"))?;
+        let user = load_or_generate_key::<UserKeyPair>(&dir.join("user.key"))?;
+
+        Ok(Self { ogre, reviewer, user })
+    }
+}
+
+trait KeyPairOps: Sized {
+    fn generate() -> Self;
+    fn from_bytes(bytes: &[u8; 32]) -> Self;
+    fn to_bytes(&self) -> [u8; 32];
+}
+
+macro_rules! impl_keypair_ops {
+    ($name:ident) => {
+        impl KeyPairOps for $name {
+            fn generate() -> Self { $name::generate() }
+            fn from_bytes(bytes: &[u8; 32]) -> Self { $name::from_bytes(bytes) }
+            fn to_bytes(&self) -> [u8; 32] { $name::to_bytes(self) }
+        }
+    };
+}
+
+impl_keypair_ops!(OgreKeyPair);
+impl_keypair_ops!(ReviewerKeyPair);
+impl_keypair_ops!(UserKeyPair);
+
+fn load_or_generate_key<K: KeyPairOps>(path: &std::path::Path) -> Result<K, std::io::Error> {
+    if path.exists() {
+        let hex = std::fs::read_to_string(path)?;
+        let hex = hex.trim();
+        let bytes = hex_decode(hex).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        let arr: [u8; 32] = bytes.try_into().map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "key must be 32 bytes")
+        })?;
+        Ok(K::from_bytes(&arr))
+    } else {
+        let key = K::generate();
+        let hex = hex_encode(&key.to_bytes());
+        std::fs::write(path, &hex)?;
+        Ok(key)
+    }
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn hex_decode(hex: &str) -> Result<Vec<u8>, String> {
+    if hex.len() % 2 != 0 {
+        return Err("odd hex length".into());
+    }
+    (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).map_err(|e| e.to_string()))
+        .collect()
 }
 
 /// The public keys for all signers, used by the proxy for verification.
